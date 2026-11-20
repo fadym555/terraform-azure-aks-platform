@@ -1,16 +1,4 @@
-# The kubelet identity only exists after apply, so give the mock a realistic one at plan time
-mock_provider "azurerm" {
-  mock_resource "azurerm_kubernetes_cluster" {
-    override_during = plan
-    defaults = {
-      kubelet_identity = [{
-        client_id                 = "00000000-0000-0000-0000-000000000001"
-        object_id                 = "00000000-0000-0000-0000-000000000002"
-        user_assigned_identity_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/mc-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-agentpool"
-      }]
-    }
-  }
-}
+mock_provider "azurerm" {}
 
 run "prod_values_plan_cleanly" {
   command = plan

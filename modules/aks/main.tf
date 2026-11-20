@@ -9,6 +9,29 @@ terraform {
   }
 }
 
+# User-assigned identities survive cluster rebuilds, so role assignments
+# (ACR pull, Key Vault, DNS) don't have to be redone if the cluster is replaced.
+resource "azurerm_user_assigned_identity" "control_plane" {
+  name                = "id-aks-${var.name}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  tags                = var.tags
+}
+
+resource "azurerm_user_assigned_identity" "kubelet" {
+  name                = "id-aks-${var.name}-kubelet"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  tags                = var.tags
+}
+
+# The control plane needs to be able to attach the kubelet identity to nodes
+resource "azurerm_role_assignment" "control_plane_identity_operator" {
+  scope                = azurerm_user_assigned_identity.kubelet.id
+  role_definition_name = "Managed Identity Operator"
+  principal_id         = azurerm_user_assigned_identity.control_plane.principal_id
+}
+
 resource "azurerm_kubernetes_cluster" "this" {
   name                = "aks-${var.name}"
   location            = var.location
@@ -55,7 +78,14 @@ resource "azurerm_kubernetes_cluster" "this" {
   }
 
   identity {
-    type = "SystemAssigned"
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.control_plane.id]
+  }
+
+  kubelet_identity {
+    client_id                 = azurerm_user_assigned_identity.kubelet.client_id
+    object_id                 = azurerm_user_assigned_identity.kubelet.principal_id
+    user_assigned_identity_id = azurerm_user_assigned_identity.kubelet.id
   }
 
   network_profile {
@@ -79,6 +109,8 @@ resource "azurerm_kubernetes_cluster" "this" {
   lifecycle {
     ignore_changes = [default_node_pool[0].node_count]
   }
+
+  depends_on = [azurerm_role_assignment.control_plane_identity_operator]
 }
 
 resource "azurerm_kubernetes_cluster_node_pool" "user" {
@@ -109,6 +141,6 @@ resource "azurerm_role_assignment" "acr_pull" {
 
   scope                            = var.acr_id
   role_definition_name             = "AcrPull"
-  principal_id                     = azurerm_kubernetes_cluster.this.kubelet_identity[0].object_id
+  principal_id                     = azurerm_user_assigned_identity.kubelet.principal_id
   skip_service_principal_aad_check = true
 }

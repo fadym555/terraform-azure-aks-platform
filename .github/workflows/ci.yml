@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Format & validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+      - name: terraform validate (every module and the platform stack)
+        run: |
+          for dir in modules/* platform; do
+            echo "::group::$dir"
+            terraform -chdir="$dir" init -backend=false -input=false > /dev/null
+            terraform -chdir="$dir" validate
+            echo "::endgroup::"
+          done
+
+  tflint:
+    name: TFLint (azurerm ruleset)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: terraform-linters/setup-tflint@v6
+      - name: Install plugins
+        run: tflint --init --config "$PWD/.tflint.hcl"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Lint
+        run: tflint --recursive --config "$PWD/.tflint.hcl" --format compact
+
+  security:
+    name: Security scan (Trivy, fail on high/critical)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Trivy config scan
+        run: docker run --rm -v "$PWD:/src" aquasec/trivy:latest config --severity HIGH,CRITICAL --exit-code 1 /src
+
+  test:
+    name: terraform test (${{ matrix.dir }})
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [modules/network, modules/aks, platform]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+      - run: terraform -chdir="${{ matrix.dir }}" init -backend=false -input=false
+      - run: terraform -chdir="${{ matrix.dir }}" test -verbose

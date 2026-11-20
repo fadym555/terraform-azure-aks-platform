@@ -1,16 +1,4 @@
-# The kubelet identity only exists after apply, so give the mock a realistic one at plan time
-mock_provider "azurerm" {
-  mock_resource "azurerm_kubernetes_cluster" {
-    override_during = plan
-    defaults = {
-      kubelet_identity = [{
-        client_id                 = "00000000-0000-0000-0000-000000000001"
-        object_id                 = "00000000-0000-0000-0000-000000000002"
-        user_assigned_identity_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/mc-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-agentpool"
-      }]
-    }
-  }
-}
+mock_provider "azurerm" {}
 
 variables {
   name                       = "demo"
@@ -42,6 +30,20 @@ run "secure_by_default" {
   assert {
     condition     = tolist(azurerm_kubernetes_cluster.this.api_server_access_profile[0].authorized_ip_ranges) == ["203.0.113.0/24"]
     error_message = "API server must be restricted to the authorized ranges."
+  }
+}
+
+run "uses_user_assigned_identities" {
+  command = plan
+
+  assert {
+    condition     = azurerm_kubernetes_cluster.this.identity[0].type == "UserAssigned"
+    error_message = "Control plane should use a user-assigned identity."
+  }
+
+  assert {
+    condition     = azurerm_role_assignment.control_plane_identity_operator.role_definition_name == "Managed Identity Operator"
+    error_message = "Control plane must be able to assign the kubelet identity."
   }
 }
 

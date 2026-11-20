@@ -28,7 +28,7 @@ run "secure_by_default" {
   }
 
   assert {
-    condition     = tolist(azurerm_kubernetes_cluster.this.api_server_access_profile[0].authorized_ip_ranges) == ["203.0.113.0/24"]
+    condition     = length(azurerm_kubernetes_cluster.this.api_server_access_profile[0].authorized_ip_ranges) == 1 && contains(azurerm_kubernetes_cluster.this.api_server_access_profile[0].authorized_ip_ranges, "203.0.113.0/24")
     error_message = "API server must be restricted to the authorized ranges."
   }
 }
